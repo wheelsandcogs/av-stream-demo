@@ -1,0 +1,38 @@
+{
+  "name": "stream-demo",
+  "version": "1.0.0",
+  "description": "Test csv upload streaming",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint . --ext .ts",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "front": "tsx watch src/frontend.ts",
+    "back": "tsx watch src/backend.ts",
+    "frontmem": "npm run build && node --expose-gc dist/frontend.js",
+    "backmem": "npm run build && node --expose-gc dist/backend.js"
+  },
+  "author": "phil@wheelsandcogs.co.uk",
+  "license": "ISC",
+  "dependencies": {
+    "clamscan": "^2.4.0",
+    "csv": "^6.3.11",
+    "express": "^5.1.0",
+    "express-http-proxy": "^2.1.1",
+    "pechkin": "^2.2.0",
+    "pg": "^8.16.0",
+    "pg-query-stream": "^4.10.0"
+  },
+  "devDependencies": {
+    "@tsconfig/node22": "^22.0.2",
+    "@types/clamscan": "^2.4.1",
+    "@types/express": "^5.0.3",
+    "@types/express-http-proxy": "^1.6.6",
+    "@types/node": "^22.15.31",
+    "eslint": "^9.28.0",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.34.0"
+  }
+}
