@@ -1,7 +1,7 @@
 {
-  "name": "stream-demo",
+  "name": "av-stream-demo",
   "version": "1.0.0",
-  "description": "Test csv upload streaming",
+  "description": "Test csv upload streaming with av check",
   "type": "module",
   "main": "index.js",
   "scripts": {
