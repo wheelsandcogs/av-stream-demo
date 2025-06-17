@@ -1,7 +1,9 @@
 import fs from 'node:fs/promises';
-import { createWriteStream } from 'node:fs';
+import { createWriteStream, WriteStream } from 'node:fs';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
+import { Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 
 import express, { Request, Response } from 'express';
 import NodeClam from 'clamscan';
@@ -21,78 +23,92 @@ const clamscan = await new NodeClam().init({
 
 interface FileInfo {
   filename: string;
+  mimeType: string;
   filePath: string;
   saved: boolean;
   scan?: Record<string, unknown>;
 }
 
+const getAVPassthrough = (fileInfo: FileInfo): Transform => {
+  const av = clamscan.passthrough(); // doesn't wait for scan before passing the stream through
+
+  av.on('error', (err) => {
+    throw err;
+  });
+
+  av.on('timeout', () => {
+    throw new Error('Virus scan timed out');
+  });
+
+  av.on('scan-complete', (scan) => {
+    fileInfo.scan = scan;
+  });
+
+  return av;
+};
+
+const getOutputFile = (fileInfo: FileInfo): WriteStream => {
+  const filePath = path.resolve(uploadDirPath, fileInfo.filename);
+  const outputFile = createWriteStream(filePath);
+
+  outputFile.on('error', (err) => {
+      throw err;
+    });
+
+  outputFile.on('finish', () => {
+    fileInfo.filePath = filePath;
+    fileInfo.saved = true;
+  });
+
+  return outputFile;
+};
+
 // Handle file upload
 app.post('/', fileUpload(), async (req: Request, res: Response) => {
   console.log('Handling file upload...');
-  const files: FileInfo[] = [];
   const start = performance.now();
 
   try {
-    // by default pechkin (and busboy) supports mutliple files in a single POST request. If we don't need that
-    // we might be able to simplify this a bit.
-    for await (const { stream, filename } of req.files!) {
-      const fileInfo: FileInfo = { filename, filePath: '', saved: false, scan: undefined };
-      files.push(fileInfo);
+    // we only care about the first file in the request, bin off the rest
+    const iterable = await req.files?.next() as any || {};
+    const { stream, filename, mimeType } = iterable.value || {};
 
-      if (!stream || !filename) {
-        console.error('Invalid file upload request: missing stream or filename');
-        res.status(400).json({ error: 'Invalid file upload request' });
-        return;
-      }
-
-      const av = clamscan.passthrough();
-      const filePath = path.resolve(uploadDirPath, filename);
-      const outputFile = createWriteStream(filePath);
-
-      stream.pipe(av).pipe(outputFile);
-
-      outputFile.on('error', (err) => {
-        throw err;
-      });
-
-      outputFile.on('finish', () => {
-        fileInfo.filePath = filePath;
-        fileInfo.saved = true;
-      });
-
-      av.on('error', (err) => {
-        throw err;
-      });
-
-      av.on('timeout', () => {
-        throw new Error('Virus scan timed out');
-      });
-
-      av.on('scan-complete', (scan) => {
-        fileInfo.scan = scan;
-      });
+    if (!stream || !filename) {
+      console.error('Invalid file upload request: missing file stream or filename');
+      res.status(400).json({ error: 'Invalid file upload request' });
+      return;
     }
 
-    const waitForComplete = setInterval(async () => {
-      if (files.every(file => file.saved && file.scan)) {
-        clearInterval(waitForComplete);
-        const end = performance.now();
-        const time = Math.round(end - start);
-        console.log(`Upload and scan took ${time}ms`);
+    const fileInfo: FileInfo = { filename, mimeType, filePath: '', saved: false, scan: undefined };
 
-        const file = files[0];
+    await pipeline(
+      stream,
+      getAVPassthrough(fileInfo),
+      getOutputFile(fileInfo)
+    ).then(() => {
+      const waitForComplete = setInterval(async () => {
+        if (fileInfo.saved && fileInfo.scan) {
+          clearInterval(waitForComplete);
+          const end = performance.now();
+          const time = Math.round(end - start);
+          console.log(`Upload and scan took ${time}ms`);
 
-        if (file.scan?.isInfected === false) {
-          await generateFactTable(files[0].filePath);
-          res.json({ message: 'OK', files, time });
-        } else {
-          res.status(400).json({ message: 'REJECTED', files, time });
+          if (fileInfo.scan?.isInfected === false) {
+            await generateFactTable(fileInfo.filePath);
+            res.json({ message: 'OK', fileInfo, time });
+          } else {
+            res.status(400).json({ message: 'REJECTED', fileInfo, time });
+          }
+
+          return;
         }
+        console.log('.');
+      }, 50);
+    })
+    .catch((err) => {
+      throw err;
+    });
 
-        return;
-      }
-      console.log('.');
-    }, 50);
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Internal Server Error' });
     return;
