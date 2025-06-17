@@ -12,8 +12,6 @@ const pageTemplate = `
   </form>
 `;
 
-app.use();
-
 app.get('/', (req: Request, res: Response) => {
   console.log('Rendering upload form...');
   res.send(pageTemplate);
@@ -21,7 +19,7 @@ app.get('/', (req: Request, res: Response) => {
 
 // Proxy file upload requests directly to the backend server as a stream
 // This avoids the file being stored or loaded into memory on the frontend server
-app.post('/', proxy('http://localhost:3001'));
+app.post('/', proxy('http://localhost:3001', { limit: '100mb' }));
 
 app.listen(port, () => {
   console.log(`Frontend running at http://localhost:${port}`);
