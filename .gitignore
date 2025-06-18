@@ -10,6 +10,7 @@ pids
 logs
 results
 tmp
+uploads
 
 # Coverage reports
 coverage
