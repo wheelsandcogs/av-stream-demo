@@ -9,7 +9,6 @@ import express, { Request, Response } from 'express';
 import NodeClam from 'clamscan';
 
 import { fileUpload } from './file-upload.js';
-import { generateFactTable } from './fact-table.js';
 
 const app = express();
 const port = 3001;
@@ -80,34 +79,31 @@ app.post('/', fileUpload(), async (req: Request, res: Response) => {
     }
 
     const fileInfo: FileInfo = { filename, mimeType, filePath: '', saved: false, scan: undefined };
+    const virusScanner = getAVPassthrough(fileInfo);
+    const outputFile = getOutputFile(fileInfo);
 
-    await pipeline(
-      stream,
-      getAVPassthrough(fileInfo),
-      getOutputFile(fileInfo)
-    ).then(() => {
-      const waitForComplete = setInterval(async () => {
-        if (fileInfo.saved && fileInfo.scan) {
-          clearInterval(waitForComplete);
-          const end = performance.now();
-          const time = Math.round(end - start);
-          console.log(`Upload and scan took ${time}ms`);
-
-          if (fileInfo.scan?.isInfected === false) {
-            await generateFactTable(fileInfo.filePath);
-            res.json({ message: 'OK', fileInfo, time });
-          } else {
-            res.status(400).json({ message: 'REJECTED', fileInfo, time });
-          }
-
-          return;
-        }
-        console.log('.');
-      }, 50);
-    })
-    .catch((err) => {
+    await pipeline(stream, virusScanner, outputFile).catch((err) => {
       throw err;
     });
+
+    // virus scanner is passthrough so it does not block the pipeline - need to wait for it to complete
+    const waitForScan = setInterval(async () => {
+      if (fileInfo.scan) {
+        clearInterval(waitForScan);
+        const end = performance.now();
+        const time = Math.round(end - start);
+        console.log(`Save and scan took ${time}ms`);
+
+        if (fileInfo.scan?.isInfected === true) {
+          res.status(400).json({ message: 'INFECTED', fileInfo, time });
+          return;
+        }
+
+        res.json({ message: 'OK', fileInfo, time });
+        return;
+      }
+      console.log('.');
+    }, 50);
 
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Internal Server Error' });
